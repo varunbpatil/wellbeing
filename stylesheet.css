@@ -1,0 +1,115 @@
+.wellbeing-overlay {
+  background-color: rgba(0, 0, 0, 0.8);
+}
+
+.wellbeing-content-box {
+  spacing: 20px;
+}
+
+.wellbeing-overlay-text {
+  color: white;
+  font-size: 24px;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.wellbeing-overlay-countdown {
+  color: #cccccc;
+  font-size: 18px;
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.wellbeing-button-box {
+  spacing: 12px;
+}
+
+.wellbeing-overlay-button {
+  border-radius: 12px;
+  padding: 12px 24px;
+  font-weight: bold;
+  transition-duration: 200ms;
+  color: white;
+  border: none;
+  min-width: 120px;
+}
+
+.wellbeing-overlay-button.snooze-button {
+  background-color: #0066df;
+}
+
+.wellbeing-overlay-button.snooze-button:hover {
+  background-color: #0052b3;
+}
+
+.wellbeing-overlay-button.snooze-button:active {
+  background-color: #003f87;
+}
+
+.wellbeing-overlay-button.skip-button {
+  background-color: #e40006;
+}
+
+.wellbeing-overlay-button.skip-button:hover {
+  background-color: #c20005;
+}
+
+.wellbeing-overlay-button.skip-button:active {
+  background-color: #9f0004;
+}
+
+.wellbeing-overlay-hint {
+  color: #888888;
+  font-size: 14px;
+  text-align: center;
+  margin-top: 4px;
+}
+
+.wellbeing-dialog {
+  background-color: rgba(0, 0, 0, 0.8);
+}
+
+.wellbeing-dialog-box {
+  background-color: #2e2e2e;
+  border-radius: 12px;
+  padding: 24px;
+  margin: 20px;
+}
+
+.wellbeing-dialog-title {
+  color: white;
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 12px;
+}
+
+.wellbeing-dialog-message {
+  color: #cccccc;
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.wellbeing-dialog-buttons {
+  spacing: 12px;
+}
+
+.wellbeing-dialog-button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid #555555;
+  background-color: #3a3a3a;
+  color: white;
+}
+
+.wellbeing-dialog-button:hover {
+  background-color: #4a4a4a;
+}
+
+.wellbeing-dialog-button-primary {
+  background-color: #0066cc;
+  border-color: #0066cc;
+}
+
+.wellbeing-dialog-button-primary:hover {
+  background-color: #0077dd;
+}

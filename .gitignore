@@ -1,0 +1,13 @@
+# Compiled gschemas
+schemas/gschemas.compiled
+
+# Claude Code settings
+.claude/
+
+# Backup files
+*~
+*.bak
+
+# OS generated files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+    <schema id="org.gnome.shell.extensions.wellbeing" path="/org/gnome/shell/extensions/wellbeing/">
+        <key name="enabled" type="b">
+            <default>false</default>
+            <summary>Enable Wellbeing</summary>
+            <description>Whether the wellbeing extension is enabled</description>
+        </key>
+        <key name="break-interval" type="i">
+            <default>1800</default>
+            <range min="10" max="7200"/>
+            <summary>Break Interval</summary>
+            <description>Time between breaks in seconds (default: 30 minutes)</description>
+        </key>
+        <key name="break-duration" type="i">
+            <default>300</default>
+            <range min="5" max="900"/>
+            <summary>Break Duration</summary>
+            <description>Duration of break in seconds (default: 5 minutes)</description>
+        </key>
+        <key name="snooze-duration" type="i">
+            <default>120</default>
+            <range min="5" max="1800"/>
+            <summary>Snooze Duration</summary>
+            <description>Duration to snooze break in seconds (default: 2 minutes)</description>
+        </key>
+    </schema>
+</schemalist>

@@ -1,0 +1,9 @@
+{
+  "name": "Wellbeing",
+  "description": "Take regular breaks to maintain your wellbeing",
+  "uuid": "wellbeing@varunbpatil",
+  "version": 1,
+  "shell-version": ["49"],
+  "url": "",
+  "gettext-domain": "wellbeing"
+}
