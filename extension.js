@@ -47,6 +47,7 @@ const WellbeingIndicator = GObject.registerClass(
       this._countdownLabel = null; // Countdown display
       this._grab = null; // Input grab for overlay
       this._keyEventId = null; // Keyboard event handler ID
+      this._unredirectDisabled = false; // Track if we disabled unredirect
 
       // Create status area icon
       this._icon = new St.Icon({
@@ -233,6 +234,11 @@ const WellbeingIndicator = GObject.registerClass(
         GLib.PRIORITY_DEFAULT,
         1,
         () => {
+          // Safety check - ensure we're still in a valid break state
+          if (this._state !== State.RUNNING || !this._enabled || !this._overlay) {
+            return GLib.SOURCE_REMOVE;
+          }
+
           this._remainingSeconds--;
           if (this._countdownLabel) {
             this._countdownLabel.set_text(
@@ -271,6 +277,11 @@ const WellbeingIndicator = GObject.registerClass(
         track_hover: true,
         layout_manager: new Clutter.BinLayout(),
       });
+
+      // FULLSCREEN VIDEO FIX: Prevent layout manager errors
+      // When added to top_window_group, layout manager expects meta_window property
+      // Setting to null prevents "can't access property get_window_type" errors
+      this._overlay.meta_window = null;
 
       // Vertical container for all content
       const contentBox = new St.BoxLayout({
@@ -340,10 +351,21 @@ const WellbeingIndicator = GObject.registerClass(
 
       this._overlay.add_child(contentBox);
 
-      // Add to screen and make it full-screen
-      Main.layoutManager.addTopChrome(this._overlay);
+      // FULLSCREEN VIDEO FIX: Use top_window_group instead of chrome system
+      // This ensures overlay appears above all windows, including fullscreen video
+      global.top_window_group.add_child(this._overlay);
       this._overlay.set_position(0, 0);
       this._overlay.set_size(global.screen_width, global.screen_height);
+
+      // FULLSCREEN VIDEO FIX: Disable unredirection
+      // Fullscreen apps normally bypass the compositor for performance (unredirection)
+      // This causes overlays to be hidden behind fullscreen video in Chrome/Firefox/VLC
+      // Disabling unredirection forces all rendering through the compositor
+      global.compositor.disable_unredirect();
+      this._unredirectDisabled = true;
+
+      // Ensure overlay is at the very top of the stacking order
+      global.top_window_group.set_child_above_sibling(this._overlay, null);
 
       // Start with zero opacity and fade in smoothly
       this._overlay.set_opacity(0);
@@ -353,9 +375,11 @@ const WellbeingIndicator = GObject.registerClass(
         mode: Clutter.AnimationMode.EASE_OUT_QUAD,
       });
 
-      // Grab input focus to capture keyboard events
+      // Setup input focus and keyboard handling
+      // When using top_window_group, we need explicit focus management
       this._grab = global.stage.grab(this._overlay);
       this._overlay.grab_key_focus();
+      global.stage.set_key_focus(this._overlay);
 
       // Handle keyboard shortcuts: Escape to skip, Space to snooze
       this._keyEventId = this._overlay.connect(
@@ -491,9 +515,15 @@ const WellbeingIndicator = GObject.registerClass(
             this._grab = null;
           }
 
+          // FULLSCREEN VIDEO FIX: Re-enable unredirection for performance
+          if (this._unredirectDisabled) {
+            global.compositor.enable_unredirect();
+            this._unredirectDisabled = false;
+          }
+
           // Remove and destroy overlay widget
           if (this._overlay) {
-            Main.layoutManager.removeChrome(this._overlay);
+            global.top_window_group.remove_child(this._overlay);
             this._overlay.destroy();
             this._overlay = null;
           }
@@ -512,6 +542,12 @@ const WellbeingIndicator = GObject.registerClass(
       if (this._sessionModeId) {
         Main.sessionMode.disconnect(this._sessionModeId);
         this._sessionModeId = null;
+      }
+
+      // FULLSCREEN VIDEO FIX: Ensure unredirection is re-enabled on cleanup
+      if (this._unredirectDisabled) {
+        global.compositor.enable_unredirect();
+        this._unredirectDisabled = false;
       }
 
       // Clean up all resources
