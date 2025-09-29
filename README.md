@@ -1,6 +1,6 @@
 # 🧘 Wellbeing GNOME Shell Extension
 
-Take regular breaks to maintain your wellbeing.
+Take regular breaks to maintain your wellbeing. Tested on GNOME 48 and 49.
 
 ## Demo
 
@@ -34,5 +34,5 @@ cd wellbeing
 
 ## Requirements
 
-- GNOME Shell 49+
+- GNOME 48/49
 - `glib-compile-schemas` (usually included with GNOME)
