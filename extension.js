@@ -278,11 +278,6 @@ const WellbeingIndicator = GObject.registerClass(
         layout_manager: new Clutter.BinLayout(),
       });
 
-      // FULLSCREEN VIDEO FIX: Prevent layout manager errors
-      // When added to top_window_group, layout manager expects meta_window property
-      // Setting to null prevents "can't access property get_window_type" errors
-      this._overlay.meta_window = null;
-
       // Vertical container for all content
       const contentBox = new St.BoxLayout({
         vertical: true,
@@ -351,9 +346,9 @@ const WellbeingIndicator = GObject.registerClass(
 
       this._overlay.add_child(contentBox);
 
-      // FULLSCREEN VIDEO FIX: Use top_window_group instead of chrome system
-      // This ensures overlay appears above all windows, including fullscreen video
-      global.top_window_group.add_child(this._overlay);
+      // FULLSCREEN VIDEO FIX: Use Main.uiGroup for better layout integration
+      // This ensures overlay appears above all windows while maintaining proper window positioning
+      Main.uiGroup.add_child(this._overlay);
       this._overlay.set_position(0, 0);
       this._overlay.set_size(global.screen_width, global.screen_height);
 
@@ -365,7 +360,7 @@ const WellbeingIndicator = GObject.registerClass(
       this._unredirectDisabled = true;
 
       // Ensure overlay is at the very top of the stacking order
-      global.top_window_group.set_child_above_sibling(this._overlay, null);
+      Main.uiGroup.set_child_above_sibling(this._overlay, null);
 
       // Start with zero opacity and fade in smoothly
       this._overlay.set_opacity(0);
@@ -376,7 +371,7 @@ const WellbeingIndicator = GObject.registerClass(
       });
 
       // Setup input focus and keyboard handling
-      // When using top_window_group, we need explicit focus management
+      // Explicit focus management for overlay interaction
       this._grab = global.stage.grab(this._overlay);
       this._overlay.grab_key_focus();
       global.stage.set_key_focus(this._overlay);
@@ -523,7 +518,7 @@ const WellbeingIndicator = GObject.registerClass(
 
           // Remove and destroy overlay widget
           if (this._overlay) {
-            global.top_window_group.remove_child(this._overlay);
+            Main.uiGroup.remove_child(this._overlay);
             this._overlay.destroy();
             this._overlay = null;
           }
