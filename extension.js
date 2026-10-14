@@ -49,6 +49,9 @@ const WellbeingIndicator = GObject.registerClass(
       this._keyEventId = null; // Keyboard event handler ID
       this._unredirectDisabled = false; // Track if we disabled unredirect
 
+      // Settings signal handler IDs, so they can be disconnected on destroy
+      this._settingsHandlerIds = [];
+
       // Create status area icon
       this._icon = new St.Icon({
         icon_name: "org.gnome.Settings-wellbeing-symbolic",
@@ -93,37 +96,45 @@ const WellbeingIndicator = GObject.registerClass(
       this.menu.addMenuItem(prefsItem);
 
       // Listen for settings changes and update state accordingly
-      this._settings.connect("changed::enabled", () => {
-        this._enabled = this._settings.get_boolean("enabled");
-        this._toggleItem.setToggleState(this._enabled);
-        this._updateIconState();
+      this._settingsHandlerIds.push(
+        this._settings.connect("changed::enabled", () => {
+          this._enabled = this._settings.get_boolean("enabled");
+          this._toggleItem.setToggleState(this._enabled);
+          this._updateIconState();
 
-        // Start or stop timer based on new enabled state
-        if (this._state === State.RUNNING) {
-          this._updateTimer();
-        }
-      });
+          // Start or stop timer based on new enabled state
+          if (this._state === State.RUNNING) {
+            this._updateTimer();
+          }
+        })
+      );
 
       // Listen for break-related setting changes and restart timers with new values
-      this._settings.connect("changed::break-interval", () => {
-        if (this._state === State.RUNNING) {
-          this._updateTimer();
-        }
-      });
+      this._settingsHandlerIds.push(
+        this._settings.connect("changed::break-interval", () => {
+          if (this._state === State.RUNNING) {
+            this._updateTimer();
+          }
+        })
+      );
 
-      this._settings.connect("changed::break-duration", () => {
-        // If currently in a break, restart it with new duration
-        if (this._state === State.RUNNING && this._overlay) {
-          this._destroyBreakTimers();
-          this._destroyOverlay();
-          this._startBreak();
-        }
-      });
+      this._settingsHandlerIds.push(
+        this._settings.connect("changed::break-duration", () => {
+          // If currently in a break, restart it with new duration
+          if (this._state === State.RUNNING && this._overlay) {
+            this._destroyBreakTimers();
+            this._destroyOverlay();
+            this._startBreak();
+          }
+        })
+      );
 
-      this._settings.connect("changed::snooze-duration", () => {
-        // Snooze duration change doesn't need immediate action
-        // Will be used next time snooze is triggered
-      });
+      this._settingsHandlerIds.push(
+        this._settings.connect("changed::snooze-duration", () => {
+          // Snooze duration change doesn't need immediate action
+          // Will be used next time snooze is triggered
+        })
+      );
 
       // Initialize enabled state from settings
       this._enabled = this._settings.get_boolean("enabled");
@@ -280,7 +291,7 @@ const WellbeingIndicator = GObject.registerClass(
 
       // Vertical container for all content
       const contentBox = new St.BoxLayout({
-        vertical: true,
+        orientation: Clutter.Orientation.VERTICAL,
         style_class: "wellbeing-content-box",
       });
 
@@ -298,7 +309,7 @@ const WellbeingIndicator = GObject.registerClass(
 
       // Horizontal container for buttons
       const buttonBox = new St.BoxLayout({
-        vertical: false,
+        orientation: Clutter.Orientation.HORIZONTAL,
         style_class: "wellbeing-button-box",
         x_expand: true,
       });
@@ -538,6 +549,14 @@ const WellbeingIndicator = GObject.registerClass(
         Main.sessionMode.disconnect(this._sessionModeId);
         this._sessionModeId = null;
       }
+
+      // Disconnect settings listeners so they can't fire on a torn-down indicator
+      if (this._settings && this._settingsHandlerIds) {
+        for (const id of this._settingsHandlerIds) {
+          this._settings.disconnect(id);
+        }
+      }
+      this._settingsHandlerIds = null;
 
       // FULLSCREEN VIDEO FIX: Ensure unredirection is re-enabled on cleanup
       if (this._unredirectDisabled) {
