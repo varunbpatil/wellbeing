@@ -7,6 +7,7 @@ import GLib from "gi://GLib";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import * as PanelMenu from "resource:///org/gnome/shell/ui/panelMenu.js";
 import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
+import * as QuickSettings from "resource:///org/gnome/shell/ui/quickSettings.js";
 
 import {
   Extension,
@@ -573,12 +574,395 @@ const WellbeingIndicator = GObject.registerClass(
   }
 );
 
+const WellbeingQuickToggle = GObject.registerClass(
+  class WellbeingQuickToggle extends QuickSettings.QuickMenuToggle {
+    _init(extension) {
+      super._init({
+        title: _("Wellbeing"),
+        iconName: "org.gnome.Settings-wellbeing-symbolic",
+        toggleMode: true,
+      });
+
+      this._extension = extension;
+      this._settings = extension.getSettings();
+
+      this._enabled = false;
+      this._state =
+        Main.sessionMode.currentMode === "user"
+          ? State.RUNNING
+          : State.SUSPENDED;
+
+      // Core state variables (same as indicator)
+      this._timer = 0;
+      this._breakTimer = 0;
+      this._countdownTimer = 0;
+      this._snoozeTimer = 0;
+
+      this._overlay = null;
+      this._countdownLabel = null;
+      this._grab = null;
+      this._keyEventId = null;
+      this._unredirectDisabled = false;
+      this._settingsHandlerIds = [];
+
+      // Add preferences menu item
+      this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+      const prefsItem = new PopupMenu.PopupMenuItem(_("Preferences"));
+      prefsItem.connect("activate", () => {
+        this._extension.openPreferences();
+      });
+      this.menu.addMenuItem(prefsItem);
+
+      // Update settings when toggled
+      this.connect("clicked", () => {
+        this._settings.set_boolean("enabled", this.checked);
+      });
+
+      // Monitor session mode changes
+      this._sessionModeId = Main.sessionMode.connect("updated", () => {
+        this._onSessionModeChanged();
+      });
+
+      // Setup settings listeners
+      this._settingsHandlerIds.push(
+        this._settings.connect("changed::enabled", () => {
+          this._enabled = this._settings.get_boolean("enabled");
+          this.set({ checked: this._enabled });
+          this._updateIconStyle();
+
+          if (this._state === State.RUNNING) {
+            this._updateTimer();
+          }
+        })
+      );
+
+      this._settingsHandlerIds.push(
+        this._settings.connect("changed::break-interval", () => {
+          if (this._state === State.RUNNING) {
+            this._updateTimer();
+          }
+        })
+      );
+
+      this._settingsHandlerIds.push(
+        this._settings.connect("changed::break-duration", () => {
+          if (this._state === State.RUNNING && this._overlay) {
+            this._destroyBreakTimers();
+            this._destroyOverlay();
+            this._startBreak();
+          }
+        })
+      );
+
+      this._settingsHandlerIds.push(
+        this._settings.connect("changed::snooze-duration", () => {})
+      );
+
+      this._enabled = this._settings.get_boolean("enabled");
+      this.set({ checked: this._enabled });
+      this._updateIconStyle();
+
+      this._onSessionModeChanged();
+    }
+
+    _updateIconStyle() {
+      if (this._enabled) {
+        this.iconName = "org.gnome.Settings-wellbeing-symbolic";
+      } else {
+        this.iconName = "org.gnome.Settings-wellbeing-symbolic";
+      }
+    }
+
+    _onSessionModeChanged() {
+      const isUserMode = Main.sessionMode.currentMode === "user";
+
+      if (isUserMode && this._state === State.SUSPENDED) {
+        this._resume();
+      } else if (!isUserMode && this._state === State.RUNNING) {
+        this._suspend();
+      } else if (
+        isUserMode &&
+        this._state === State.RUNNING &&
+        this._enabled &&
+        this._timer === 0
+      ) {
+        this._startTimer();
+      }
+    }
+
+    _suspend() {
+      if (this._state === State.SUSPENDED) return;
+      this._destroyAllTimers();
+      this._destroyOverlay();
+      this._state = State.SUSPENDED;
+    }
+
+    _resume() {
+      if (this._state === State.RUNNING) return;
+      this._state = State.RUNNING;
+      if (this._enabled) {
+        this._startTimer();
+      }
+    }
+
+    _updateTimer() {
+      if (this._state !== State.RUNNING) return;
+      this._destroyTimer();
+      if (this._enabled) {
+        this._startTimer();
+      }
+    }
+
+    _startTimer() {
+      if (this._state !== State.RUNNING || !this._enabled) {
+        return;
+      }
+      this._destroyTimer();
+      const interval = this._settings.get_int("break-interval");
+      this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, interval, () => {
+        this._timer = 0;
+        this._startBreak();
+        return GLib.SOURCE_REMOVE;
+      });
+    }
+
+    _startBreak() {
+      if (this._state !== State.RUNNING || !this._enabled || this._overlay) {
+        return;
+      }
+      const duration = this._settings.get_int("break-duration");
+      this._remainingSeconds = duration;
+      this._createOverlay();
+      this._countdownTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
+        if (this._state !== State.RUNNING || !this._enabled || !this._overlay) {
+          return GLib.SOURCE_REMOVE;
+        }
+        this._remainingSeconds--;
+        if (this._countdownLabel) {
+          this._countdownLabel.set_text(this._formatTime(this._remainingSeconds));
+        }
+        if (this._remainingSeconds <= 0) {
+          this._endBreak();
+          return GLib.SOURCE_REMOVE;
+        }
+        return GLib.SOURCE_CONTINUE;
+      });
+      this._breakTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, duration, () => {
+        this._endBreak();
+        return GLib.SOURCE_REMOVE;
+      });
+    }
+
+    _createOverlay() {
+      if (this._state !== State.RUNNING || this._overlay) return;
+      this._overlay = new St.Widget({
+        style_class: "wellbeing-overlay",
+        reactive: true,
+        can_focus: true,
+        track_hover: true,
+        layout_manager: new Clutter.BinLayout(),
+      });
+      const contentBox = new St.BoxLayout({
+        orientation: Clutter.Orientation.VERTICAL,
+        style_class: "wellbeing-content-box",
+      });
+      const label = new St.Label({
+        text: _("Time to hydrate, stretch, or take a quick walk."),
+        style_class: "wellbeing-overlay-text",
+      });
+      this._countdownLabel = new St.Label({
+        text: this._formatTime(this._remainingSeconds),
+        style_class: "wellbeing-overlay-countdown",
+      });
+      const buttonBox = new St.BoxLayout({
+        orientation: Clutter.Orientation.HORIZONTAL,
+        style_class: "wellbeing-button-box",
+        x_expand: true,
+      });
+      const snoozeButton = new St.Button({
+        label: _("Snooze"),
+        style_class: "wellbeing-overlay-button snooze-button",
+        x_expand: true,
+      });
+      snoozeButton.connect("clicked", () => {
+        this._snoozeBreak();
+      });
+      const skipButton = new St.Button({
+        label: _("Skip Break"),
+        style_class: "wellbeing-overlay-button skip-button",
+        x_expand: true,
+      });
+      skipButton.connect("clicked", () => {
+        this._skipBreak();
+      });
+      buttonBox.add_child(snoozeButton);
+      buttonBox.add_child(skipButton);
+      const hintLabel = new St.Label({
+        text: _("Press Space to snooze, Esc to skip break"),
+        style_class: "wellbeing-overlay-hint",
+      });
+      contentBox.add_child(label);
+      contentBox.add_child(this._countdownLabel);
+      contentBox.add_child(buttonBox);
+      contentBox.add_child(hintLabel);
+      contentBox.set_x_align(Clutter.ActorAlign.CENTER);
+      contentBox.set_y_align(Clutter.ActorAlign.CENTER);
+      this._overlay.add_child(contentBox);
+      Main.uiGroup.add_child(this._overlay);
+      this._overlay.set_position(0, 0);
+      this._overlay.set_size(global.screen_width, global.screen_height);
+      global.compositor.disable_unredirect();
+      this._unredirectDisabled = true;
+      Main.uiGroup.set_child_above_sibling(this._overlay, null);
+      this._overlay.set_opacity(0);
+      this._overlay.ease({
+        opacity: 255,
+        duration: 500,
+        mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+      });
+      this._grab = global.stage.grab(this._overlay);
+      this._overlay.grab_key_focus();
+      global.stage.set_key_focus(this._overlay);
+      this._keyEventId = this._overlay.connect("key-press-event", (actor, event) => {
+        const key = event.get_key_symbol();
+        if (key === Clutter.KEY_Escape) {
+          this._skipBreak();
+          return Clutter.EVENT_STOP;
+        } else if (key === Clutter.KEY_space) {
+          this._snoozeBreak();
+          return Clutter.EVENT_STOP;
+        }
+        return Clutter.EVENT_PROPAGATE;
+      });
+    }
+
+    _formatTime(seconds) {
+      if (seconds >= 60) {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        let timeText = minutes === 1 ? "1 minute" : `${minutes} minutes`;
+        if (remainingSeconds > 0) {
+          timeText +=
+            remainingSeconds === 1 ? " 1 second" : ` ${remainingSeconds} seconds`;
+        }
+        return timeText + " remaining";
+      } else {
+        return seconds === 1 ? "1 second remaining" : `${seconds} seconds remaining`;
+      }
+    }
+
+    _snoozeBreak() {
+      const snoozeDuration = this._settings.get_int("snooze-duration");
+      this._destroyBreakTimers();
+      this._destroyOverlay();
+      if (this._state === State.RUNNING && this._enabled) {
+        this._snoozeTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, snoozeDuration, () => {
+          this._snoozeTimer = 0;
+          this._startBreak();
+          return GLib.SOURCE_REMOVE;
+        });
+      }
+    }
+
+    _skipBreak() {
+      this._destroyBreakTimers();
+      this._destroyOverlay();
+      if (this._state === State.RUNNING && this._enabled) {
+        this._startTimer();
+      }
+    }
+
+    _endBreak() {
+      this._destroyBreakTimers();
+      this._destroyOverlay();
+      if (this._state === State.RUNNING && this._enabled) {
+        this._startTimer();
+      }
+    }
+
+    _destroyTimer() {
+      if (this._timer > 0) {
+        GLib.source_remove(this._timer);
+        this._timer = 0;
+      }
+    }
+
+    _destroyBreakTimers() {
+      if (this._breakTimer > 0) {
+        GLib.source_remove(this._breakTimer);
+        this._breakTimer = 0;
+      }
+      if (this._countdownTimer > 0) {
+        GLib.source_remove(this._countdownTimer);
+        this._countdownTimer = 0;
+      }
+      if (this._snoozeTimer > 0) {
+        GLib.source_remove(this._snoozeTimer);
+        this._snoozeTimer = 0;
+      }
+    }
+
+    _destroyAllTimers() {
+      this._destroyTimer();
+      this._destroyBreakTimers();
+    }
+
+    _destroyOverlay() {
+      if (!this._overlay) return;
+      this._overlay.ease({
+        opacity: 0,
+        duration: 300,
+        mode: Clutter.AnimationMode.EASE_IN_QUAD,
+        onComplete: () => {
+          if (this._keyEventId && this._overlay) {
+            this._overlay.disconnect(this._keyEventId);
+            this._keyEventId = null;
+          }
+          if (this._grab) {
+            this._grab.dismiss();
+            this._grab = null;
+          }
+          if (this._unredirectDisabled) {
+            global.compositor.enable_unredirect();
+            this._unredirectDisabled = false;
+          }
+          if (this._overlay) {
+            Main.uiGroup.remove_child(this._overlay);
+            this._overlay.destroy();
+            this._overlay = null;
+          }
+          this._countdownLabel = null;
+        },
+      });
+    }
+
+    destroy() {
+      this._state = State.SUSPENDED;
+      if (this._sessionModeId) {
+        Main.sessionMode.disconnect(this._sessionModeId);
+        this._sessionModeId = null;
+      }
+      if (this._settings && this._settingsHandlerIds) {
+        for (const id of this._settingsHandlerIds) {
+          this._settings.disconnect(id);
+        }
+      }
+      this._settingsHandlerIds = null;
+      if (this._unredirectDisabled) {
+        global.compositor.enable_unredirect();
+        this._unredirectDisabled = false;
+      }
+      this._destroyAllTimers();
+      this._destroyOverlay();
+      super.destroy();
+    }
+  }
+);
+
 export default class WellbeingExtension extends Extension {
   enable() {
-    // Load theme for styling
     Main.loadTheme();
 
-    // Set up GSettings schema for configuration
     const schemaSource = Gio.SettingsSchemaSource.new_from_directory(
       this.dir.get_child("schemas").get_path(),
       Gio.SettingsSchemaSource.get_default(),
@@ -600,16 +984,75 @@ export default class WellbeingExtension extends Extension {
       settings_schema: schemaObj,
     });
 
-    // Create and add the indicator to the status area
-    this._indicator = new WellbeingIndicator(this);
-    Main.panel.addToStatusArea(this.uuid, this._indicator);
+    this._useQuickSettings = this._settings.get_boolean("use-quick-settings");
+
+    this._settingsHandlerIds = [];
+    this._settingsHandlerIds.push(
+      this._settings.connect("changed::use-quick-settings", () => {
+        // Restart extension to apply change
+        this.disable();
+        this.enable();
+      })
+    );
+
+    if (this._useQuickSettings) {
+      this._indicator = null;
+      this._quickToggle = new WellbeingQuickToggle(this);
+      const quickSettings = Main.panel.statusArea.quickSettings;
+      try {
+        if (quickSettings) {
+          if (typeof quickSettings.addExternalIndicator === "function") {
+            this._quickSettingsIndicator = new QuickSettings.SystemIndicator();
+            this._quickSettingsIndicator.quickSettingsItems.push(this._quickToggle);
+            quickSettings.addExternalIndicator(this._quickSettingsIndicator);
+          } else if (quickSettings.menu && typeof quickSettings.menu.addItem === "function") {
+            quickSettings.menu.addItem(this._quickToggle);
+          } else if (typeof quickSettings.addItem === "function") {
+            quickSettings.addItem(this._quickToggle);
+          } else if (QuickSettings && QuickSettings.menu && typeof QuickSettings.menu.addItem === "function") {
+            QuickSettings.menu.addItem(this._quickToggle);
+          }
+        } else if (QuickSettings && QuickSettings.menu && typeof QuickSettings.menu.addItem === "function") {
+          QuickSettings.menu.addItem(this._quickToggle);
+        }
+      } catch (e) {
+        console.error("Wellbeing extension: failed to add to quick settings", e);
+      }
+    } else {
+      this._quickToggle = null;
+      this._indicator = new WellbeingIndicator(this);
+      Main.panel.addToStatusArea(this.uuid, this._indicator);
+    }
   }
 
   disable() {
-    // Clean up indicator when extension is disabled
+    if (this._settingsHandlerIds && this._settings) {
+      for (const id of this._settingsHandlerIds) {
+        this._settings.disconnect(id);
+      }
+    }
+    this._settingsHandlerIds = [];
+
+    if (this._quickSettingsIndicator) {
+      const quickSettings = Main.panel.statusArea.quickSettings;
+      if (quickSettings && typeof quickSettings.removeExternalIndicator === "function") {
+        try {
+          quickSettings.removeExternalIndicator(this._quickSettingsIndicator);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      this._quickSettingsIndicator.destroy();
+      this._quickSettingsIndicator = null;
+    }
+
     if (this._indicator) {
       this._indicator.destroy();
       this._indicator = null;
+    }
+    if (this._quickToggle) {
+      this._quickToggle.destroy();
+      this._quickToggle = null;
     }
 
     this._settings = null;

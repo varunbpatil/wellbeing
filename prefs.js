@@ -36,6 +36,25 @@ export default class WellbeingPreferences extends ExtensionPreferences {
     });
     window.add(page);
 
+    const appearanceGroup = new Adw.PreferencesGroup({
+      title: _("Appearance"),
+    });
+    page.add(appearanceGroup);
+
+    const quickSettingsRow = new Adw.SwitchRow({
+      title: _("Use Quick Settings"),
+      subtitle: _("Move the wellbeing toggle into the system quick settings as a pill"),
+    });
+
+    settings.bind(
+      "use-quick-settings",
+      quickSettingsRow,
+      "active",
+      Gio.SettingsBindFlags.DEFAULT
+    );
+
+    appearanceGroup.add(quickSettingsRow);
+
     const group = new Adw.PreferencesGroup({
       title: _("Break Settings"),
     });

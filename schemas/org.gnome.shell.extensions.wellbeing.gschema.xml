@@ -24,5 +24,10 @@
             <summary>Snooze Duration</summary>
             <description>Duration to snooze break in seconds (default: 2 minutes)</description>
         </key>
+        <key name="use-quick-settings" type="b">
+            <default>false</default>
+            <summary>Use Quick Settings</summary>
+            <description>Move the wellbeing toggle into the system quick settings menu instead of the panel</description>
+        </key>
     </schema>
 </schemalist>
