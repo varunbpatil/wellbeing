@@ -23,7 +23,7 @@ const State = {
 const WellbeingIndicator = GObject.registerClass(
   class WellbeingIndicator extends PanelMenu.Button {
     _init(extension) {
-      super._init(0.0, "Wellbeing");
+      super._init(0.5, "Wellbeing");
 
       this._extension = extension;
       this._settings = extension.getSettings();
@@ -612,6 +612,21 @@ const WellbeingQuickToggle = GObject.registerClass(
         this._extension.openPreferences();
       });
       this.menu.addMenuItem(prefsItem);
+
+      // Try to make menu open below the toggle
+      if (this.menu && this.menu.boxPointer) {
+        try {
+          this.menu.boxPointer.arrowSide = St.Side.TOP;
+        } catch (e) {
+          // ignore
+        }
+      } else if (this.menu && this.menu._boxPointer) {
+        try {
+          this.menu._boxPointer.arrowSide = St.Side.TOP;
+        } catch (e) {
+          // ignore
+        }
+      }
 
       // Update settings when toggled
       this.connect("clicked", () => {
